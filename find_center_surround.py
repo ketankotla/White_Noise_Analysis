@@ -39,17 +39,6 @@ def process_dff_weighted_history(dff_weighted_history):
     
     return normalized_frame
 
-def average_dff_weighted_history(dff_weighted_history):
-    """Average dff_weighted_history across time to get a single 2D frame."""
-    if dff_weighted_history.shape[0] <= ANALYSIS_END_INDEX:
-        raise ValueError(
-            f"Need at least {ANALYSIS_END_INDEX + 1} frames for analysis window "
-            f"{ANALYSIS_START_INDEX}:{ANALYSIS_END_INDEX}."
-        )
-
-    dff64 = np.asarray(dff_weighted_history, dtype=np.float64)
-    analysis_window = dff64[ANALYSIS_START_INDEX:ANALYSIS_END_INDEX + 1]
-    return np.mean(analysis_window, axis=0, dtype=np.float64).astype(np.float32)
 
 def find_center_and_contiguous_positive_region(normalized_frame):
     """

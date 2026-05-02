@@ -273,7 +273,8 @@ def _save_weighted_history_tiffs(
 	history_before=history_before,
 	history_after=history_after,
 	time_bin_size=time_bin_size,
-	chunk_size=64,
+	skip_first_frames=0,
+	chunk_size=64,  # Process ROI events in chunks to manage memory; increase if OOM, decrease for faster processing
 ):
 	if ignore_set is None:
 		ignore_set = set()
@@ -306,16 +307,24 @@ def _save_weighted_history_tiffs(
 			print(f"  Skipping ROI {int(roi)} (in ignore list)")
 			continue
 		
+		# Skip first N frames if requested
+		if skip_first_frames > 0:
+			group = group.iloc[skip_first_frames:].reset_index(drop=True)
+			if len(group) == 0:
+				print(f"  Skipping ROI {int(roi)} (no frames after skipping first {skip_first_frames})")
+				continue
+		
 		raw_idx = group["raw_stim_index"].to_numpy(dtype=numpy.int64)
 		weights = group["dff"].to_numpy(dtype=compute_dtype)
 		roi_sum = numpy.zeros((history_total, dim, dim), dtype=compute_dtype)
 		event_sum = numpy.zeros((history_total, dim * dim), dtype=compute_dtype)
 		event_count = numpy.zeros(history_total, dtype=count_dtype)
 
+		# Process events in chunks to avoid loading all stimulus patterns into memory at once
 		for start in range(0, len(raw_idx), chunk_size):
 			end = min(start + chunk_size, len(raw_idx))
-			chunk_idx = raw_idx[start:end]
-			chunk_w = weights[start:end]
+			chunk_idx = raw_idx[start:end]  # Current chunk of event indices
+			chunk_w = weights[start:end]  # Corresponding dF/F weights for this chunk
 
 			for event_idx, event_weight in zip(chunk_idx, chunk_w):
 				pos = numpy.searchsorted(raw_valid_idx, event_idx)
@@ -416,6 +425,9 @@ def _process_row(task):
 	output_name = input_dict.get("output_name", input_dict.get("ch1_name", "output"))
 	mapped_csv = os.path.join(out_dir, f"{output_name}-stim-mapped.csv")
 	mapped_df.to_csv(mapped_csv, index=False)
+	
+	#skip_first_frames = _to_int(input_dict.get("skip_first_frames", 0), 0)
+	skip_first_frames = 100
 	roi_tiffs = _save_weighted_history_tiffs(
 		out_dir,
 		output_name,
@@ -428,6 +440,7 @@ def _process_row(task):
 		history_before=history_before,
 		history_after=history_after,
 		time_bin_size=time_bin_size,
+		skip_first_frames=skip_first_frames,
 	)
 
 	if _is_true(input_dict.get("verbose", "FALSE")):

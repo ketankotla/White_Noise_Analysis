@@ -95,7 +95,7 @@ def process_raw_csv(raw_csv_file):
 	
 	results = []
 	for roi in sorted(df['ROI'].unique()):
-		roi_data = df[df['ROI'] == roi]['F'].values
+		roi_data = df[(df['ROI'] == roi) & (df['frame'] > 99)]['F'].values
 		fano = calculate_fano_factor_for_roi(roi_data)
 		results.append({'ROI': int(roi), 'fano_factor': fano})
 	
@@ -115,9 +115,9 @@ def save_filtered_rois(output_df, output_dir, output_name="filtered_rois.csv"):
 		output_name: name of output CSV file
 	"""
 	# Filter: (max dF/F > 5 OR peak before frame 200) OR (fano < 0.7 OR fano > 7)
-	dff_criteria = (output_df['max_dff'] > 5) | (output_df['peak_frame'] < 100)
-	fano_criteria = (output_df['fano_factor'] < 0.15) | (output_df['fano_factor'] > 7)
-	filtered_df = output_df[dff_criteria | fano_criteria]
+	#dff_criteria = (output_df['max_dff'] > 5) | (output_df['peak_frame'] < 100)
+	fano_criteria = output_df['fano_factor']<2
+	filtered_df = output_df[fano_criteria]
 	
 	if len(filtered_df) > 0:
 		result_df = filtered_df[['sample_name', 'ROI']].copy()
@@ -126,12 +126,12 @@ def save_filtered_rois(output_df, output_dir, output_name="filtered_rois.csv"):
 		output_file = os.path.join(output_dir, output_name)
 		result_df.to_csv(output_file, index=False)
 		print(f"\nFiltered ROIs saved to: {output_file}")
-		print(f"  Criteria: (max_dff > 5 OR peak_frame < 100) OR (fano < 0.15 OR fano > 7)")
+		# print(f"  Criteria: (max_dff > 5 OR peak_frame < 100) OR (fano < 0.15 OR fano > 7)")
 		print(f"  Total ROIs: {len(result_df)}")
-		print(f"  - max_dff > 5: {len(filtered_df[filtered_df['max_dff'] > 5])}")
-		print(f"  - peak_frame < 100: {len(filtered_df[filtered_df['peak_frame'] < 100])}")
-		print(f"  - fano_factor < 0.15: {len(filtered_df[filtered_df['fano_factor'] < 0.15])}")
-		print(f"  - fano_factor > 7: {len(filtered_df[filtered_df['fano_factor'] > 7])}")
+		# print(f"  - max_dff > 5: {len(filtered_df[filtered_df['max_dff'] > 5])}")
+		# print(f"  - peak_frame < 100: {len(filtered_df[filtered_df['peak_frame'] < 100])}")
+		# print(f"  - fano_factor < 0.15: {len(filtered_df[filtered_df['fano_factor'] < 0.15])}")
+		# print(f"  - fano_factor > 7: {len(filtered_df[filtered_df['fano_factor'] > 7])}")
 	else:
 		print(f"\nNo ROIs met filtering criteria")
 
@@ -152,11 +152,11 @@ def main(parent_dir, output_file=None):
 		sample_dir = os.path.dirname(measurement_dir)
 		sample_name = os.path.basename(sample_dir)
 		
-		dff_csv_files = glob.glob(os.path.join(measurement_dir, "*-dff.csv"))
+		#dff_csv_files = glob.glob(os.path.join(measurement_dir, "*-dff.csv"))
 		raw_csv_files = glob.glob(os.path.join(measurement_dir, "*-raw.csv"))
 		
-		for dff_csv_file, raw_csv_file in zip(sorted(dff_csv_files), sorted(raw_csv_files)):
-			basename = os.path.basename(dff_csv_file)
+		for raw_csv_file in sorted(raw_csv_files):
+			basename = os.path.basename(raw_csv_file)
 			
 			# Skip files with 'MLB' in the name
 			if 'MLB' in basename:
@@ -167,14 +167,14 @@ def main(parent_dir, output_file=None):
 			
 			try:
 				# Process dF/F stats
-				dff_stats = process_dff_csv(dff_csv_file)
+				#dff_stats = process_dff_csv(dff_csv_file)
 				
 				# Process Fano factor from raw data
 				fano_stats = process_raw_csv(raw_csv_file)
 				
 				# Merge on ROI
-				roi_stats = dff_stats.merge(fano_stats, on='ROI')
-				
+				#roi_stats = dff_stats.merge(fano_stats, on='ROI')
+				roi_stats = fano_stats.copy()
 				roi_stats['sample_name'] = sample_name
 				roi_stats['sample_dir'] = sample_dir
 				all_results.append(roi_stats)
@@ -185,7 +185,7 @@ def main(parent_dir, output_file=None):
 		output_df = pd.concat(all_results, ignore_index=True)
 		
 		# Reorder columns
-		cols = ['sample_name', 'sample_dir', 'ROI', 'max_dff', 'peak_frame', 'fano_factor']
+		cols = ['sample_name', 'sample_dir', 'ROI', 'fano_factor']
 		output_df = output_df[cols]
 		
 		# Sort by sample and ROI

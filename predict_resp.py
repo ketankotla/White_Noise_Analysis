@@ -103,6 +103,11 @@ def load_srf_params(json_path: Path) -> dict:
     """
     with open(json_path, 'r') as f:
         params = json.load(f)
+    
+    # Default to Gaussian if model_type not specified
+    if 'model_type' not in params:
+        params['model_type'] = 'Gaussian'
+    
     return params
 
 
@@ -225,6 +230,29 @@ def load_gcamp_stim_mapping(mapping_csv: Path, roi: int | None = None) -> tuple[
     print(f"  Total stimulus frames in recording: {stim_frame_end - stim_frame_start + 1}")
     
     return stim_frame_start, stim_frame_end
+
+
+def load_gcamp_stim_mapping_full(mapping_csv: Path, roi: int | None = None) -> pd.DataFrame:
+    """Load full GCaMP-stimulus mapping DataFrame.
+    
+    Args:
+        mapping_csv: Path to Gcamp-stim-mapped.csv file
+        roi: Optional ROI number to filter by (if None, uses all ROIs)
+        
+    Returns:
+        DataFrame with ROI, frame, stim_frame, stim_global_time, dff columns
+    """
+    df = pd.read_csv(mapping_csv)
+    
+    # Filter by ROI if specified
+    if roi is not None:
+        df = df[df['ROI'] == roi]
+    
+    if df.empty:
+        raise ValueError(f"No data found in {mapping_csv}" + 
+                        (f" for ROI {roi}" if roi is not None else ""))
+    
+    return df
 
 
 def load_roi_center(centers_csv: Path, roi: int, sample_name: str | None = None) -> tuple[float, float]:
@@ -398,6 +426,96 @@ def extract_spatial_response(stimulus_frame: np.ndarray, srf: np.ndarray) -> flo
     return response
 
 
+def bin_stimulus_by_gcamp_frames(stimulus: np.ndarray, gcamp_mapping: pd.DataFrame, 
+                                   stim_frame_start: int) -> np.ndarray:
+    """Bin stimulus frames based on GCaMP frame indices from the mapping.
+    
+    For each GCaMP frame, determine which stimulus frames it spans and average them.
+    
+    Args:
+        stimulus: 3D stimulus array (frames, height, width) - should be the extracted range
+        gcamp_mapping: DataFrame with 'stim_frame' column (stimulus frame indices)
+        stim_frame_start: Starting stimulus frame index (for offset)
+        
+    Returns:
+        Binned stimulus array matching the number of GCaMP frames
+    """
+    # Get stimulus frame indices for each GCaMP frame
+    stim_frames = gcamp_mapping['stim_frame'].values
+    
+    # Determine bin boundaries
+    # Each GCaMP frame corresponds to a stimulus frame; bin between consecutive mappings
+    num_gcamp_frames = len(stim_frames)
+    binned_stimulus = []
+    
+    for i in range(num_gcamp_frames):
+        # Get stimulus frame index for this GCaMP frame
+        current_stim_frame = stim_frames[i]
+        
+        # Determine next boundary (or end of stimulus)
+        if i < num_gcamp_frames - 1:
+            next_stim_frame = stim_frames[i + 1]
+        else:
+            next_stim_frame = stim_frames[i] + 1
+        
+        # Convert to local stimulus array indices (relative to stim_frame_start)
+        start_idx = current_stim_frame - stim_frame_start
+        end_idx = next_stim_frame - stim_frame_start
+        
+        # Ensure indices are within bounds
+        start_idx = max(0, start_idx)
+        end_idx = min(stimulus.shape[0], end_idx)
+        
+        if start_idx < stimulus.shape[0]:
+            # Average stimulus frames in this bin
+            bin_stim = stimulus[start_idx:end_idx].mean(axis=0)
+            binned_stimulus.append(bin_stim)
+    
+    binned_stimulus = np.array(binned_stimulus)
+    
+    print(f"Stimulus binned by GCaMP frames: {stimulus.shape[0]} frames -> {len(binned_stimulus)} GCaMP frames")
+    
+    return binned_stimulus
+
+
+def bin_stimulus(stimulus: np.ndarray, stimulus_rate: float, time_bin_size: float = 0.1) -> np.ndarray:
+    """Bin stimulus frames into time bins like align_stim.py does.
+    
+    Args:
+        stimulus: 3D stimulus array (frames, height, width)
+        stimulus_rate: Frame rate in Hz
+        time_bin_size: Size of each time bin in seconds (default: 0.1)
+        
+    Returns:
+        Binned stimulus array (time_bins, height, width)
+    """
+    # Calculate how many frames per bin
+    frames_per_bin = stimulus_rate * time_bin_size
+    
+    if not np.isclose(frames_per_bin, round(frames_per_bin), atol=1e-9):
+        print(f"Warning: frames_per_bin={frames_per_bin} is not an integer. Rounding...")
+    
+    frames_per_bin = int(round(frames_per_bin))
+    
+    # Calculate number of complete bins
+    num_frames = stimulus.shape[0]
+    num_bins = num_frames // frames_per_bin
+    
+    if num_frames % frames_per_bin != 0:
+        print(f"Warning: {num_frames} frames not divisible by {frames_per_bin} frames/bin")
+        print(f"  Discarding last {num_frames % frames_per_bin} frames")
+    
+    # Reshape and average
+    stimulus_cropped = stimulus[:num_bins * frames_per_bin]
+    stimulus_reshaped = stimulus_cropped.reshape(num_bins, frames_per_bin, *stimulus.shape[1:])
+    binned_stimulus = stimulus_reshaped.mean(axis=1)
+    
+    print(f"Stimulus binned from {stimulus.shape[0]} frames to {num_bins} bins")
+    print(f"  ({frames_per_bin} frames per bin, time_bin_size={time_bin_size}s at {stimulus_rate}Hz)")
+    
+    return binned_stimulus
+
+
 def crop_and_rotate_stimulus(stimulus: np.ndarray, row_slice: slice = slice(8, 21), 
                                col_slice: slice = slice(None, 15)) -> np.ndarray:
     """Crop and rotate stimulus like align_stim.py does.
@@ -421,28 +539,46 @@ def crop_and_rotate_stimulus(stimulus: np.ndarray, row_slice: slice = slice(8, 2
     return stimulus_rotated
 
 
-def convolve_temporal_filter(spatial_responses: np.ndarray, trf_time: np.ndarray, 
-                              trf_filter: np.ndarray, stimulus_rate: float) -> np.ndarray:
-    """Convolve spatial responses with temporal filter.
+def create_spatiotemporal_rf(srf: np.ndarray, trf_filter: np.ndarray) -> np.ndarray:
+    """Create a combined spatiotemporal receptive field from SRF and TRF.
     
     Args:
-        spatial_responses: 1D array of spatial responses over time
-        trf_time: Time points of the temporal filter (seconds)
-        trf_filter: Filter values at each time point
-        stimulus_rate: Frame rate of stimulus (Hz)
+        srf: 2D spatial receptive field (height, width)
+        trf_filter: 1D temporal filter (time_steps,)
         
     Returns:
-        Predicted response trace (convolved result)
+        3D spatiotemporal receptive field (time_steps, height, width)
     """
-    # Convert TRF time to frame indices based on stimulus rate
-    stimulus_dt = 1.0 / stimulus_rate
+    # Use outer product: trf_filter[:, newaxis, newaxis] * srf
+    # This creates (time_steps, height, width) array
+    st_rf = trf_filter[:, np.newaxis, np.newaxis] * srf
     
-    # Interpolate TRF to stimulus timepoints if needed
-    trf_frames = trf_time * stimulus_rate
+    return st_rf
+
+
+def convolve_spatiotemporal(stimulus: np.ndarray, st_rf: np.ndarray) -> np.ndarray:
+    """Convolve stimulus with spatiotemporal receptive field.
     
-    # Use simple convolution approach
-    # Convolve spatial response with TRF
-    predicted = np.convolve(spatial_responses, trf_filter, mode='valid')
+    Args:
+        stimulus: 3D stimulus array (frames, height, width)
+        st_rf: 3D spatiotemporal RF (time_steps, height, width)
+        
+    Returns:
+        1D predicted response trace
+    """
+    num_time_steps = st_rf.shape[0]
+    num_stim_frames = stimulus.shape[0]
+    
+    # Convolve along time dimension
+    # For each time step, compute the dot product of stimulus window with ST-RF
+    predicted = np.zeros(num_stim_frames - num_time_steps + 1, dtype=np.float32)
+    
+    for t in range(len(predicted)):
+        # Extract stimulus window matching ST-RF temporal extent
+        stim_window = stimulus[t:t + num_time_steps]  # (time_steps, height, width)
+        
+        # Compute spatiotemporal dot product
+        predicted[t] = np.sum(stim_window * st_rf)
     
     return predicted
 
@@ -454,7 +590,7 @@ def predict_responses(
     trf_filter: np.ndarray,
     stimulus_rate: float = 10.0,
 ) -> np.ndarray:
-    """Predict neural responses from stimulus using SRF and TRF.
+    """Predict neural responses from stimulus using combined spatiotemporal RF.
     
     Args:
         stimulus: 3D stimulus array (frames, height, width)
@@ -469,19 +605,12 @@ def predict_responses(
     if stimulus.ndim != 3:
         raise ValueError(f"Expected 3D stimulus (frames, height, width), got {stimulus.ndim}D")
     
-    # Extract spatial responses for each frame
-    spatial_responses = []
-    for frame in stimulus:
-        response = extract_spatial_response(frame, srf)
-        spatial_responses.append(response)
+    # Create combined spatiotemporal receptive field
+    st_rf = create_spatiotemporal_rf(srf, trf_filter)
+    print(f"Created spatiotemporal RF: {st_rf.shape}")
     
-    spatial_responses = np.array(spatial_responses)
-    print(f"Extracted spatial responses: {len(spatial_responses)} frames")
-    
-    # Convolve with temporal filter
-    predicted = convolve_temporal_filter(
-        spatial_responses, trf_time, trf_filter, stimulus_rate
-    )
+    # Convolve stimulus with spatiotemporal RF
+    predicted = convolve_spatiotemporal(stimulus, st_rf)
     
     return predicted
 
@@ -570,13 +699,16 @@ def main() -> None:
     
     # Extract recording frames if GCaMP mapping is provided
     effective_rate = args.stimulus_rate
+    gcamp_mapping_df = None
+    stim_frame_start = 0
+    
     if args.gcamp_mapping is not None:
         if not args.gcamp_mapping.exists():
             raise FileNotFoundError(f"GCaMP mapping file not found: {args.gcamp_mapping}")
         
-        stim_frame_start, stim_frame_end = load_gcamp_stim_mapping(
-            args.gcamp_mapping, roi=args.roi
-        )
+        # Load full mapping for binning
+        gcamp_mapping_df = load_gcamp_stim_mapping_full(args.gcamp_mapping, roi=args.roi)
+        stim_frame_start, stim_frame_end = gcamp_mapping_df['stim_frame'].min(), gcamp_mapping_df['stim_frame'].max()
         
         # Extract only the stimulus frames that were recorded
         stimulus = stimulus[stim_frame_start:stim_frame_end+1]
@@ -587,9 +719,17 @@ def main() -> None:
     print("Cropping and rotating stimulus...")
     stimulus = crop_and_rotate_stimulus(stimulus, row_slice=slice(8, 21), col_slice=slice(None, 15))
     
+    # Bin stimulus based on GCaMP frame indices or uniform binning
+    print("Binning stimulus...")
+    if gcamp_mapping_df is not None:
+        stimulus = bin_stimulus_by_gcamp_frames(stimulus, gcamp_mapping_df, stim_frame_start)
+    else:
+        time_bin_size = 0.1  # Match align_stim.py
+        stimulus = bin_stimulus(stimulus, stimulus_rate=args.stimulus_rate, time_bin_size=time_bin_size)
+    
     # Load spatial RF parameters
     srf_params = load_srf_params(args.srf_params)
-    print(f"Spatial RF model type: {srf_params['model_type']}")
+    print(f"Spatial RF model type: {srf_params.get('model_type', 'Gaussian')}")
     
     # Load temporal RF parameters
     trf_time, trf_filter = load_trf_params(args.trf_params)

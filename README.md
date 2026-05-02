@@ -10,9 +10,6 @@ This pipeline analyzes neural responses to white noise visual stimuli from in vi
 - **ResponseTools_v3.py** → Core response measurement and analysis functions
 - **utility.py** → General utility functions (file I/O, image processing)
 - **alignment.py** → Core image registration functionality (imported by align_from_lif.py)
-- **convolve.py** → Convolution and nonlinearity functions
-- **returnmeans.py** → Statistical averaging and fitting functions
-- **windowing.py** → Sliding window utilities
 - **fit_trf_util.py** → Temporal filter utility functions
 - **measure_responses_binned.py** → Alternative: Extract time-binned responses
 - **avg_RF.py** → Average receptive field across samples
@@ -35,7 +32,7 @@ Parses images from LIF (Leica Image Format) files, aligns them, and generates av
 Extracts fluorescence traces from ROIs across image stacks.
 - **Usage**: `python measure_responses.py --parent-dir <parent_dir> --input-csv <input.csv>`
 - **Flags**:
-  - `--parent-dir`: Parent directory containing sample folders (default: `..`)
+  - `--parent-dir`: Parent directory containing sample folders (default: `../all_mi1`)
   - `--input-csv`: Input CSV file (default: `../new_inputs_binned.csv`)
 - **Inputs**: 
   - Input CSV with columns: sample_name, ch1_name, mask_name, stimulus_name, ROI, threshold, reporter_name, genotype, compartment, aligned
@@ -47,10 +44,12 @@ Extracts fluorescence traces from ROIs across image stacks.
 Maps ROI response curves to stimulus frames. Joins stimulus frame metadata to each response point and reconstructs time-binned history stimuli.
 - **Usage**: `python align_stim.py --parent-dir <parent_dir> --input-csv <input.csv> --workers <num_workers>`
 - **Flags**:
-  - `--parent-dir`: Parent directory (default: `..`)
+  - `--parent-dir`: Parent directory (default: `../all_mi1`)
   - `--input-csv`: Input CSV file (default: `../new_inputs_binned.csv`)
   - `--workers`: Number of worker processes (default: CPU count - 1)
   - `--ignore`: Path to CSV with ROIs to exclude
+- **Input CSV Columns**:
+  - `skip_first_frames`: (Optional) Number of aligned frames to skip when calculating weighted history TIFs (default: 0)
 - **Key Parameters**:
   - `history_before`: 1.5 seconds
   - `history_after`: 0.5 seconds
@@ -194,12 +193,12 @@ pip install numpy scipy scikit-learn pandas seaborn matplotlib tifffile Pillow p
 
 2. **Measure Raw Responses**: 
    ```bash
-   python measure_responses.py --parent-dir .. --input-csv ../new_inputs_binned.csv
+   python measure_responses.py --parent-dir ../all_Mi1 --input-csv ../new_inputs_binned.csv
    ```
 
 3. **Align Stimulus**: 
    ```bash
-   python align_stim.py --parent-dir .. --input-csv ../new_inputs_binned.csv --workers 3
+   python align_stim.py --parent-dir ../all_Mi1 --input-csv ../new_inputs_binned.csv --workers 3
    ```
 
 4. **Find Center/Surround**: 

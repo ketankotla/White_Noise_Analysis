@@ -10,7 +10,7 @@ import tifffile
 
 
 DEFAULT_CENTERS_CSV = Path(
-    "/Users/ketankotla/Desktop/BarnhartLab/White_Noise_Analysis/all_Mi4/centers_and_contiguous_sizes.csv"
+    "/Users/ketankotla/Desktop/BarnhartLab/White_Noise_Analysis/all_Mi1/centers_and_contiguous_sizes.csv"
 )
 SMOOTH_WINDOW = 5
 TIME_START_S = -1.5
