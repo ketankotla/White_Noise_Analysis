@@ -116,7 +116,7 @@ def initial_guess(image: np.ndarray) -> tuple:
 	Returns: (amp_center, x0, y0, sigma_x_center, sigma_y_center, 
 	          amp_surround, sigma_x_surround, sigma_y_surround, offset)
 	"""
-	offset = float(np.percentile(image, 10))
+	offset = float(np.percentile(image, 50))  # Use median for better robustness
 	adjusted = image - offset
 	adjusted_pos = adjusted.copy()
 	adjusted_pos[adjusted_pos < 0] = 0
@@ -147,9 +147,8 @@ def initial_guess(image: np.ndarray) -> tuple:
 	sigma_y_center = max(sigma_y_center, 1.0)
 	amp_center = float(np.max(image) - offset)
 
-	# Estimate surround from negative pixels and overall width
+	# Estimate surround from actual min value (don't scale it down as much)
 	amp_surround = float(np.min(image) - offset)  # Usually negative
-	amp_surround = min(amp_surround, -0.01 * amp_center)  # Scale with center amplitude
 	# Surround typically has larger spatial extent
 	sigma_x_surround = sigma_x_center * 2.0
 	sigma_y_surround = sigma_y_center * 2.0
@@ -382,12 +381,24 @@ def main() -> None:
 			y_gaussian_1d = y_gaussian_center + y_gaussian_surround + offset_val
 
 		# Plot X direction Gaussian (above main plot)
-		ax_top.plot(x_profile, x_gaussian_1d, linewidth=2, color="blue")
+		if args.gaussian:
+			ax_top.plot(x_profile, x_gaussian_1d, linewidth=2, color="blue", label="Gaussian")
+		else:
+			ax_top.plot(x_profile, x_gaussian_center + offset_val, linewidth=2, color="green", label="Center", linestyle="-")
+			ax_top.plot(x_profile, x_gaussian_surround, linewidth=2, color="red", label="Surround", linestyle="--")
+			ax_top.plot(x_profile, x_gaussian_1d, linewidth=2, color="blue", label="Combined", linestyle="-", alpha=0.7)
+			ax_top.legend(loc="upper right", fontsize=9)
 		ax_top.grid(True, alpha=0.3)
 		ax_top.tick_params(labelbottom=False)
 
 		# Plot Y direction Gaussian (to the right, rotated 90 degrees)
-		ax_right.plot(y_gaussian_1d, y_profile, linewidth=2, color="red")
+		if args.gaussian:
+			ax_right.plot(y_gaussian_1d, y_profile, linewidth=2, color="red", label="Gaussian")
+		else:
+			ax_right.plot(y_gaussian_center + offset_val, y_profile, linewidth=2, color="green", label="Center", linestyle="-")
+			ax_right.plot(y_gaussian_surround, y_profile, linewidth=2, color="red", label="Surround", linestyle="--")
+			ax_right.plot(y_gaussian_1d, y_profile, linewidth=2, color="blue", label="Combined", linestyle="-", alpha=0.7)
+			ax_right.legend(loc="lower right", fontsize=9)
 		ax_right.grid(True, alpha=0.3)
 		ax_right.tick_params(labelleft=False)
 

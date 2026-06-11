@@ -13,6 +13,7 @@ This pipeline analyzes neural responses to white noise visual stimuli from in vi
 - **fit_trf_util.py** → Temporal filter utility functions
 - **measure_responses_binned.py** → Alternative: Extract time-binned responses
 - **avg_RF.py** → Average receptive field across samples
+- **radial_avg.py** → Create radially symmetric SRF from receptive field data
 - **SEM_plot.py** → Statistical plotting utilities
 
 ## File Descriptions
@@ -79,9 +80,9 @@ Identifies center and contiguous positive regions of receptive fields from dF/F 
   - combined_masked_*.tif - Combined center + surround receptive field
   - contiguous_masked_*.tif - Center receptive field
 
-#### [find_trf.py](find_trf.py)
-Extracts temporal receptive fields from time-binned stimulus history TIFF stacks.
-- **Usage**: `python find_trf.py <root_dir> --centers-csv <centers.csv>`
+#### [align_centers.py](align_centers.py)
+Aligns receptive field centers from dF/F weighted history TIFF stacks and generates SRF masks.
+- **Usage**: `python align_centers.py <root_dir> --centers-csv <centers.csv>`
 - **Flags**:
   - `root_dir`: Root directory to search (default: `.`)
   - `--centers-csv`: Path to centers CSV file (default: hardcoded DEFAULT_CENTERS_CSV)
@@ -89,7 +90,7 @@ Extracts temporal receptive fields from time-binned stimulus history TIFF stacks
 - **Inputs**: 
   - dff-weighted-history TIFF stacks
   - centers_and_contiguous_sizes.csv
-- **Outputs**: TRF CSV (time points × filter values)
+- **Outputs**: Aligned SRF masks and center TRF plot and csv
 
 ### Supporting Scripts
 
@@ -113,6 +114,17 @@ Spatially bins responses based on receptive field center location.
   - `--ignore`: Path to CSV with ROIs to exclude
 - **Inputs**: dff-weighted-history TIFF stacks
 - **Outputs**: Center-binned response data
+
+#### [radial_avg.py](radial_avg.py)
+Creates a radially symmetric spatial receptive field by averaging receptive field data across angles.
+- **Usage**: `python radial_avg.py <rf_image.tif> --output <output.tif>`
+- **Flags**:
+  - `rf_image`: Path to input receptive field TIFF image (positional, required)
+  - `--output`: Path to save radially averaged output image
+  - `--center`: Specify center coordinates (x, y), auto-detects if not provided
+  - `--show-plot`: Display original and radially averaged images
+- **Inputs**: 2D TIFF image (RF map)
+- **Outputs**: Radially symmetric RF image (TIFF)
 
 #### [filter_rois.py](filter_rois.py)
 Filters ROIs by quality metrics: dF/F peak amplitude and Fano factor (variance/mean ratio).
@@ -166,8 +178,8 @@ Columns: frame, fluorescence_value, ROI_number, [metadata...]
 }
 ```
 
-#### TRF Parameters CSV (find_trf.py)
-Columns: time_point, filter_value
+#### TRF Parameters CSV (align_centers.py)
+Columns: center_location
 
 
 ## Dependencies
@@ -208,7 +220,7 @@ pip install numpy scipy scikit-learn pandas seaborn matplotlib tifffile Pillow p
 
 5. **Extract Temporal Filters**: 
    ```bash
-   python find_trf.py . --centers-csv centers_and_contiguous_sizes.csv
+   python align_centers.py . --centers-csv centers_and_contiguous_sizes.csv
    ```
 
 6. **Fit Spatial Models** (optional): 

@@ -358,9 +358,11 @@ def _save_weighted_history_tiffs(
 					event_sum[nonzero] /= event_count[nonzero, None].astype(compute_dtype)
 
 				roi_sum += (event_weight * event_sum.reshape(history_total, dim, dim)).astype(compute_dtype, copy=False)
-				roi_cropped = roi_sum[:, 8:21, :15]
-				roi_cropped = numpy.rot90(roi_cropped, k=1, axes=(1, 2))
+				roi_cropped = roi_sum
 				
+				roi_cropped = roi_sum[:, 2:15, 4:26]
+				roi_cropped = numpy.flip(roi_cropped, axis=1)
+				roi_cropped = numpy.flip(roi_cropped, axis=2)				
 
 		roi_file = os.path.join(output_dir, f"{output_name}-roi_{int(roi)}-dff-weighted-history.tif")
 		#_save_float_tiff_stack(roi_sum, roi_file)
